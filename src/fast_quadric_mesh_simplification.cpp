@@ -4,18 +4,16 @@ Simplification::Simplification(MyMesh& mesh) : m_mesh(mesh)
 {
     m_mesh.add_property(m_vpQuadrics);
     m_mesh.add_property(m_epError);
-    m_mesh.add_property(m_fpError);
     m_mesh.add_property(m_epTargetPoints);
-    m_mesh.add_property(m_fpDirty);
+    m_mesh.add_property(m_epDirty);
 }
 
 Simplification::~Simplification()
 {
     m_mesh.remove_property(m_vpQuadrics);
     m_mesh.remove_property(m_epError);
-    m_mesh.remove_property(m_fpError);
     m_mesh.remove_property(m_epTargetPoints);
-    m_mesh.remove_property(m_fpDirty);
+    m_mesh.remove_property(m_epDirty);
 }
 
 void Simplification::SimplifyVertexTo(int iRemainedVertexNum, double dAgressiveness/*=7*/)
@@ -41,66 +39,58 @@ void Simplification::SimplifyVertexTo(int iRemainedVertexNum, double dAgressiven
         // Magic equation
         double dThreshold = 0.000000001 * pow(double(iteration + 3), dAgressiveness);
 
-        for (auto fIt = m_mesh.faces_begin(); fIt != m_mesh.faces_end(); ++fIt)
+        for (auto eIt = m_mesh.edges_begin(); eIt != m_mesh.edges_end(); ++eIt)
         {
-            m_mesh.property(m_fpDirty, *fIt) = false;
+            m_mesh.property(m_epDirty, *eIt) = false;
         }
 
-        for (auto fIt = m_mesh.faces_begin(); fIt != m_mesh.faces_end(); ++fIt)
+        for (auto eIt = m_mesh.edges_begin(); eIt != m_mesh.edges_end(); ++eIt)
         {
-            if (m_mesh.property(m_fpError, *fIt) > dThreshold) continue;
-            if (!m_mesh.is_valid_handle(*fIt)) continue;
-            if (m_mesh.status(*fIt).deleted()) continue;
-            if (m_mesh.property(m_fpDirty, *fIt)) continue;
+            if (m_mesh.status(*eIt).deleted()) continue;
+            if (!m_mesh.is_valid_handle(*eIt)) continue;
+            if (m_mesh.property(m_epError, *eIt) > dThreshold) continue;
+            if (m_mesh.property(m_epDirty, *eIt)) continue;
 
-            for (auto hIt = m_mesh.fh_iter(*fIt); hIt.is_valid(); ++hIt)
+            OpenMesh::HalfedgeHandle h0 = m_mesh.halfedge_handle(*eIt, 0);
+            OpenMesh::VertexHandle v0 = m_mesh.from_vertex_handle(h0);
+            OpenMesh::VertexHandle v1 = m_mesh.to_vertex_handle(h0);
+
+            if (m_mesh.is_boundary(v0) != m_mesh.is_boundary(v1))
             {
-                auto eh = m_mesh.edge_handle(hIt);
-                if (m_mesh.property(m_epError, eh) < dThreshold)
-                {
-                    OpenMesh::HalfedgeHandle h0 = *hIt;
-                    OpenMesh::VertexHandle v0 = m_mesh.from_vertex_handle(h0);
-                    OpenMesh::VertexHandle v1 = m_mesh.to_vertex_handle(h0);
-
-                    if (m_mesh.is_boundary(v0) != m_mesh.is_boundary(v1))
-                    {
-                        continue;
-                    }
-
-                    MyMesh::Point ptTarget = m_mesh.property(m_epTargetPoints, eh);
-                    if (IsFlipped(v0, v1, ptTarget)) continue;
-                    if (IsFlipped(v1, v0, ptTarget)) continue;
-
-                    auto h1 = m_mesh.opposite_halfedge_handle(h0);
-                    if (m_mesh.is_collapse_ok(h0))
-                    {
-                        m_mesh.collapse(h0);
-                        m_mesh.point(v1) = ptTarget;
-                    }
-                    else if (m_mesh.is_collapse_ok(h1))
-                    {
-                        m_mesh.collapse(h1);
-                        m_mesh.point(v0) = ptTarget;
-                    }
-                    else
-                    {
-                        continue;
-                    }
-                    nCurCollapses++;
-
-                    // Update related face normal
-                    UpdateFaceNormal(v1);
-                    UpdateFaceNormal(v0);
-                    auto v0Quadric = m_mesh.property(m_vpQuadrics, v0);
-                    auto v1Quadric = m_mesh.property(m_vpQuadrics, v1);
-                    m_mesh.property(m_vpQuadrics, v1) += v0Quadric;
-                    m_mesh.property(m_vpQuadrics, v0) += v1Quadric;
-                    UpdateEdgePropertyAroundV(v1);
-                    UpdateEdgePropertyAroundV(v0);
-                    break;
-                }
-                if (nCurCollapses >= nCollapses) break;
+                continue;
             }
+
+            MyMesh::Point ptTarget = m_mesh.property(m_epTargetPoints, *eIt);
+            if (IsFlipped(v0, v1, ptTarget)) continue;
+            if (IsFlipped(v1, v0, ptTarget)) continue;
+
+            auto h1 = m_mesh.opposite_halfedge_handle(h0);
+            if (m_mesh.is_collapse_ok(h0))
+            {
+                m_mesh.collapse(h0);
+                m_mesh.point(v1) = ptTarget;
+            }
+            else if (m_mesh.is_collapse_ok(h1))
+            {
+                m_mesh.collapse(h1);
+                m_mesh.point(v0) = ptTarget;
+            }
+            else
+            {
+                continue;
+            }
+            nCurCollapses++;
+
+            // Update related face normal
+            UpdateFaceNormal(v1);
+            UpdateFaceNormal(v0);
+            auto& v0Quadric = m_mesh.property(m_vpQuadrics, v0);
+            auto& v1Quadric = m_mesh.property(m_vpQuadrics, v1);
+            m_mesh.property(m_vpQuadrics, v1) += v0Quadric;
+            m_mesh.property(m_vpQuadrics, v0) += v1Quadric;
+            UpdateEdgePropertyAroundV(v1);
+            UpdateEdgePropertyAroundV(v0);
+            if (nCurCollapses >= nCollapses) break;
         }
     }
 
@@ -133,11 +123,6 @@ void Simplification::Initialize()
         m_mesh.property(m_vpQuadrics, *vIt).Clear();
     }
 
-    for (auto fIt = m_mesh.faces_begin(); fIt != m_mesh.faces_end(); ++fIt)
-    {
-        m_mesh.property(m_fpError, *fIt) = FLT_MAX;
-    }
-
     MyMesh::FaceVertexIter fvIt;
     MyMesh::VertexHandle vh0, vh1, vh2;
     for (auto fIt = m_mesh.faces_begin(); fIt != m_mesh.faces_end(); ++fIt)
@@ -147,21 +132,12 @@ void Simplification::Initialize()
         vh1 = *fvIt; ++fvIt;
         vh2 = *fvIt;
 
-        OpenMesh::Vec3d v0 = OpenMesh::vector_cast<OpenMesh::Vec3d>(m_mesh.point(vh0));
-        OpenMesh::Vec3d v1 = OpenMesh::vector_cast<OpenMesh::Vec3d>(m_mesh.point(vh1));
-        OpenMesh::Vec3d v2 = OpenMesh::vector_cast<OpenMesh::Vec3d>(m_mesh.point(vh2));
-
-        OpenMesh::Vec3d n = (v1 - v0) % (v2 - v0);
-        double area = n.norm();
-        if (area > FLT_MIN)
-        {
-            n /= area;
-        }
+        const auto& n = m_mesh.normal(*fIt);
 
         const double a = n[0];
         const double b = n[1];
         const double c = n[2];
-        const double d = -(OpenMesh::vector_cast<OpenMesh::Vec3d>(m_mesh.point(vh0)) | n);
+        const double d = -(m_mesh.point(vh0) | n);
 
         SymetricMatrix q(a, b, c, d);
 
@@ -177,17 +153,6 @@ void Simplification::Initialize()
         dError = CalculateError(*eIt, ptResult);
         m_mesh.property(m_epError, *eIt) = dError;
         m_mesh.property(m_epTargetPoints, *eIt) = ptResult;
-        auto fh0 = m_mesh.face_handle(m_mesh.halfedge_handle(*eIt, 0));
-        auto fh1 = m_mesh.face_handle(m_mesh.halfedge_handle(*eIt, 1));
-
-        if (m_mesh.is_valid_handle(fh0))
-        {
-            m_mesh.property(m_fpError, fh0) = std::min(m_mesh.property(m_fpError, fh0), dError);
-        }
-        if (m_mesh.is_valid_handle(fh1))
-        {
-            m_mesh.property(m_fpError, fh1) = std::min(m_mesh.property(m_fpError, fh1), dError);
-        }
     }
 }
 
@@ -306,7 +271,6 @@ void Simplification::UpdateFaceNormal(OpenMesh::VertexHandle v0)
         if (!m_mesh.status(*fIt).deleted())
         {
             m_mesh.set_normal(*fIt, m_mesh.calc_face_normal(*fIt));
-            m_mesh.property(m_fpDirty, *fIt) = true;
         }
     }
 }
@@ -331,5 +295,6 @@ void Simplification::UpdateEdgePropertyAroundV(OpenMesh::VertexHandle v0)
         dError = CalculateError(eh, ptResult);
         m_mesh.property(m_epError, eh) = dError;
         m_mesh.property(m_epTargetPoints, eh) = ptResult;
+        m_mesh.property(m_epDirty, eh) = true;
     }
 }

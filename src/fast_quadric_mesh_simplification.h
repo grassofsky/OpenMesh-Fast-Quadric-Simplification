@@ -57,6 +57,5 @@ private:
     OpenMesh::VPropHandleT<SymetricMatrix>  m_vpQuadrics;
     OpenMesh::EPropHandleT<double> m_epError;
     OpenMesh::EPropHandleT<MyMesh::Point> m_epTargetPoints;
-    OpenMesh::FPropHandleT<double> m_fpError;
-    OpenMesh::FPropHandleT<bool> m_fpDirty;
+    OpenMesh::EPropHandleT<bool> m_epDirty;
 };
