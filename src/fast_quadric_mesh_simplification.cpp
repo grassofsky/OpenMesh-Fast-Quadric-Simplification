@@ -1,6 +1,6 @@
 #include "fast_quadric_mesh_simplification.h"
 
-Simplification::Simplification(MyMesh& mesh) : m_mesh(mesh)
+MeshSimplification::MeshSimplification(MyMesh& mesh) : m_mesh(mesh)
 {
     m_mesh.add_property(m_vpQuadrics);
     m_mesh.add_property(m_epError);
@@ -8,7 +8,7 @@ Simplification::Simplification(MyMesh& mesh) : m_mesh(mesh)
     m_mesh.add_property(m_epDirty);
 }
 
-Simplification::~Simplification()
+MeshSimplification::~MeshSimplification()
 {
     m_mesh.remove_property(m_vpQuadrics);
     m_mesh.remove_property(m_epError);
@@ -16,10 +16,15 @@ Simplification::~Simplification()
     m_mesh.remove_property(m_epDirty);
 }
 
-void Simplification::SimplifyVertexTo(int iRemainedVertexNum, double dAgressiveness/*=7*/)
+void MeshSimplification::SimplifyVertexTo(size_t uiRemainedVertexNum, double dAgressiveness/*=7*/)
 {
-    int nCurCollapses = 0;
-    int nCollapses = m_mesh.n_vertices() - iRemainedVertexNum;
+    if (uiRemainedVertexNum >= m_mesh.n_vertices())
+    {
+        return;
+    }
+
+    size_t nCurCollapses = 0;
+    size_t nCollapses = m_mesh.n_vertices() - uiRemainedVertexNum;
 
     if (!m_mesh.has_vertex_status()) m_mesh.request_vertex_status();
     if (!m_mesh.has_face_status())   m_mesh.request_face_status();
@@ -37,6 +42,12 @@ void Simplification::SimplifyVertexTo(int iRemainedVertexNum, double dAgressiven
         if (nCurCollapses >= nCollapses) break;
         
         // Magic equation
+        //
+        // All triangles with edges below the threshold will be removed
+        //
+        // The following numbers works well for most models.
+        // If it does not, try to adjust the 3 parameters
+        //
         double dThreshold = 0.000000001 * pow(double(iteration + 3), dAgressiveness);
 
         for (auto eIt = m_mesh.edges_begin(); eIt != m_mesh.edges_end(); ++eIt)
@@ -101,17 +112,28 @@ void Simplification::SimplifyVertexTo(int iRemainedVertexNum, double dAgressiven
     if (m_mesh.has_edge_status())   m_mesh.release_edge_status();
 }
 
-void Simplification::SimplifyFaceTo(int iRemainedFaceNum, double dAgreesiveness /*= 7*/)
+void MeshSimplification::SimplifyFaceTo(size_t uiRemainedFaceNum, double dAgreesiveness /*= 7*/)
 {
+    if (uiRemainedFaceNum >= m_mesh.n_faces())
+    {
+        return;
+    }
+
     // because in every decimate:
     // remove one vertex, will remove three edges, and remove two triangles
-    int iRemovedFaceNum = m_mesh.n_faces() - iRemainedFaceNum;
-    int iRemovedVertexNum = iRemovedFaceNum / 2;
-    int iRemainedVertexNum = m_mesh.n_vertices() - iRemovedVertexNum;
-    SimplifyVertexTo(iRemainedVertexNum, dAgreesiveness);
+    size_t uiRemovedFaceNum = m_mesh.n_faces() - uiRemainedFaceNum;
+    size_t uiRemovedVertexNum = uiRemovedFaceNum / 2;
+    if (uiRemovedVertexNum >= m_mesh.n_vertices())
+    {
+        m_mesh.clear();
+        return;
+    }
+
+    size_t uiRemainedVertexNum = m_mesh.n_vertices() - uiRemovedVertexNum;
+    SimplifyVertexTo(uiRemainedVertexNum, dAgreesiveness);
 }
 
-void Simplification::Initialize()
+void MeshSimplification::Initialize()
 {
     if (!m_vpQuadrics.is_valid())
     {
@@ -156,7 +178,7 @@ void Simplification::Initialize()
     }
 }
 
-double Simplification::CalculateError(OpenMesh::EdgeHandle edge, MyMesh::Point& ptResult)
+double MeshSimplification::CalculateError(OpenMesh::EdgeHandle edge, MyMesh::Point& ptResult)
 {
 
     OpenMesh::HalfedgeHandle h0 = m_mesh.halfedge_handle(edge, 0);
@@ -164,8 +186,9 @@ double Simplification::CalculateError(OpenMesh::EdgeHandle edge, MyMesh::Point& 
     OpenMesh::VertexHandle v1 = m_mesh.to_vertex_handle(h0);
     SymetricMatrix q = m_mesh.property(m_vpQuadrics, v0) + m_mesh.property(m_vpQuadrics, v1);
     double dError = 0;
+    // The number for Det, is the index in q
     double det = q.Det(0, 1, 2, 1, 4, 5, 2, 5, 7);
-    if (det != 0 && !m_mesh.is_boundary(edge))
+    if (fabs(det) > 1e-6 && !m_mesh.is_boundary(edge))
     {
         ptResult[0] = -1 / det * (q.Det(1, 2, 3, 4, 5, 6, 5, 7, 8));	// vx = A41/det(q_delta)
         ptResult[1] = 1 / det * (q.Det(0, 2, 3, 1, 5, 6, 2, 7, 8));	    // vy = A42/det(q_delta)
@@ -200,7 +223,7 @@ double Simplification::CalculateError(OpenMesh::EdgeHandle edge, MyMesh::Point& 
     return dError;
 }
 
-double Simplification::VertexError(const SymetricMatrix& q, double x, double y, double z)
+double MeshSimplification::VertexError(const SymetricMatrix& q, double x, double y, double z)
 {
     return   q[0] * x * x + 2 * q[1] * x * y + 2 * q[2] * x * z + 2 * q[3] * x + q[4] * y * y
         + 2 * q[5] * y * z + 2 * q[6] * y + q[7] * z * z + 2 * q[8] * z + q[9];
@@ -210,7 +233,7 @@ double Simplification::VertexError(const SymetricMatrix& q, double x, double y, 
 // 不考虑即将被删除的三角形
 // 如果变化后的三角形，有近似相同的边，则返回true
 // 如果变化后的三角形之间的法向量之间的夹角过大，则返回true
-bool Simplification::IsFlipped(OpenMesh::VertexHandle v0, OpenMesh::VertexHandle v1, const MyMesh::Point& ptTarget)
+bool MeshSimplification::IsFlipped(OpenMesh::VertexHandle v0, OpenMesh::VertexHandle v1, const MyMesh::Point& ptTarget)
 {
     for (auto fIt = m_mesh.vf_iter(v0); fIt.is_valid(); ++fIt)
     {
@@ -249,18 +272,21 @@ bool Simplification::IsFlipped(OpenMesh::VertexHandle v0, OpenMesh::VertexHandle
         MyMesh::Point dir2 = pt2 - ptTarget;
         dir2.normalize();
 
-        if (fabs(dir1.dot(dir2)) > 0.999) return true;
+        // The angle below can be adjusted, but now is enough
+        // if the angle between dir1 and dir2 small than 2.6 angle, return true
+        if (fabs(dir1 | dir2) > 0.999) return true;
 
         MyMesh::Point normold = m_mesh.normal(*fIt);
-        MyMesh::Point norm = dir1.cross(dir2);
+        MyMesh::Point norm = dir1 % (dir2);
         norm.normalize();
 
-        if (normold.dot(norm) < 0.2) return true;
+        // if the angle between normold and norm large than 78.5 angle, return true
+        if ((normold | norm) < 0.2) return true;
     }
     return false;
 }
 
-void Simplification::UpdateFaceNormal(OpenMesh::VertexHandle v0)
+void MeshSimplification::UpdateFaceNormal(OpenMesh::VertexHandle v0)
 {
     if (!m_mesh.is_valid_handle(v0) || m_mesh.is_isolated(v0))
     {
@@ -275,7 +301,7 @@ void Simplification::UpdateFaceNormal(OpenMesh::VertexHandle v0)
     }
 }
 
-void Simplification::UpdateEdgePropertyAroundV(OpenMesh::VertexHandle v0)
+void MeshSimplification::UpdateEdgePropertyAroundV(OpenMesh::VertexHandle v0)
 {
     if (!m_mesh.is_valid_handle(v0) || m_mesh.is_isolated(v0))
     {

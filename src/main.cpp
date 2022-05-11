@@ -31,7 +31,7 @@ int main(int argc, const char *argv[])
 
     std::string strInput = argv[1];
     std::string strOutput = argv[2];
-    int iVertexNum = atoi(argv[3]);
+    size_t uiVertexNum = static_cast<size_t>(atoi(argv[3]));
 
     MyMesh mesh;
     OpenMesh::IO::read_mesh(mesh, strInput);
@@ -40,13 +40,15 @@ int main(int argc, const char *argv[])
     PrintMeshInfo(mesh);
 
     std::chrono::system_clock::time_point tStart = std::chrono::system_clock::now();
-    Simplification simplify(mesh);
-    simplify.SimplifyVertexTo(iVertexNum);
+    MeshSimplification simplify(mesh);
+    simplify.SimplifyVertexTo(uiVertexNum);
     std::chrono::system_clock::time_point tEnd = std::chrono::system_clock::now();
 
     std::cout << "After simplify: " << std::endl;
     PrintMeshInfo(mesh);
     std::cout << "It took time: " << std::chrono::duration_cast<std::chrono::milliseconds>(tEnd - tStart).count() << " ms";
+
+
 
     OpenMesh::IO::write_mesh(mesh, strOutput);
 

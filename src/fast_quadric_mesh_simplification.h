@@ -32,14 +32,14 @@
 
 typedef OpenMesh::TriMesh_ArrayKernelT<>  MyMesh;
 
-class Simplification
+class MeshSimplification
 {
 public:
-    Simplification(MyMesh& mesh);
-    ~Simplification();
+    MeshSimplification(MyMesh& mesh);
+    ~MeshSimplification();
 
-    void SimplifyVertexTo(int iRemainedVertexNum, double dAgressiveness=7);
-    void SimplifyFaceTo(int iRemainedFaceNum, double dAgreesiveness = 7);
+    void SimplifyVertexTo(size_t uiRemainedVertexNum, double dAgressiveness = 7);
+    void SimplifyFaceTo(size_t uiRemainedFaceNum, double dAgreesiveness = 7);
 
 private:
     void Initialize();
